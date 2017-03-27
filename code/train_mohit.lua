@@ -17,12 +17,13 @@ local cmd = torch.CmdLine()
 
 cmd:option('-desc', '')
 -- Dataset options
-cmd:option('-data', '')
+cmd:option('-train_h5', '')
+cmd:option('-test_h5', '')
 cmd:option('-num_classify', 10)
 cmd:option('-batch_size', 100)
 
 -- Optimization options
-cmd:option('-max_epochs', 200)
+cmd:option('-max_epochs', 50)
 cmd:option('-learning_rate', 1e-4)
 cmd:option('-grad_clip', 10)
 -- For Adam people don't usually decay the learning rate
@@ -31,7 +32,7 @@ cmd:option('-lr_decay_factor', 0.5)
 
 -- Output options
 cmd:option('-save', '')
-cmd:option('-print_every', 75)-- Print every n batches
+cmd:option('-print_every', 200)-- Print every n batches
 cmd:option('-checkpoint_every', 1)  -- Checkpoint after every n epochs
 cmd:option('-checkpoint_name', 'checkpoint')
 cmd:option('-validate_every_batches', 75) -- Run on validation data ever n batches
@@ -72,7 +73,7 @@ local model = ConvNet(opt_clone)
 model:createModel()
 model:updateType(dtype)
 
-local train_cls = nil
+local train_cls = require 'train_layer/train_simple'
 train_cls.setup{
   dtype=dtype,
   model=model,
@@ -91,7 +92,9 @@ function run_on_val_data()
   collectgarbage()
 end
 
+local optim_config = {learningRate = opt.learning_rate}
 local curr_batches_processed = 0
+
 for i=1, opt.max_epochs do
   train_data_co = coroutine.create(data_loader.next_train_batch)
   curr_batches_processed = 0
@@ -114,7 +117,6 @@ for i=1, opt.max_epochs do
           local args = {msg, float_epoch, opt.max_epochs, loss[1]}
           print(string.format(unpack(args)))
           print('Gradient weights for the last batch')
-          -- print(grads_history[#grads_history])
         end
 
         if (opt.validate_every_batches > 0 and 
@@ -160,7 +162,8 @@ for i=1, opt.max_epochs do
       epoch = i
     }
     -- Add checkpoint items
-    for k,v in pairs(train_cls.getCheckpoint()) do checkpoint[k] = v end
+    local train_cp = train_cls.getCheckpoint()
+    for k,v in pairs(train_cp) do checkpoint[k] = v end
 
     local filename = string.format('%s_%d.json', opt.checkpoint_name, i)
     -- Make sure the output directory exists before we try to write it
@@ -170,7 +173,7 @@ for i=1, opt.max_epochs do
     print("DID SAVE ====>  "..filename)
 
     local grads_filename = string.format('%s/model_grads.json', opt.save)
-    utils.write_json(grads_filename, grads_history)
+    utils.write_json(grads_filename, train_cp.grads_history)
 
 
     -- Now save a torch checkpoint with the model

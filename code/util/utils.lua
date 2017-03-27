@@ -32,5 +32,25 @@ function utils.write_json(path, obj)
   f:close()
 end
 
+function utils.convert_to_type(x, dtype)
+  if torch.isTensor(x) then 
+    x = x:type(dtype)
+    return x
+  end
+  for i=1,#x do 
+    if torch.isTensor(x[i]) then x[i] = x[i]:type(dtype)
+    else for j=1,#x[i] do x[i][j] = x[i][j]:type(dtype) end end
+  end
+  return x
+end
+
+function utils.get_one_hot_tensor(inp, num_classes)
+  local one_hot_val = torch.Tensor(inp:size(1), num_classes):zero()
+  for i=1,inp:size(1) do
+    one_hot_val[i][inp[i]] = 1
+  end
+  return one_hot_val
+end
+
 return utils
 
