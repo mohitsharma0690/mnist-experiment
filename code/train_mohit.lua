@@ -6,8 +6,10 @@ require 'image'
 require 'pl'
 require 'paths'
 
-require 'dataset'
+require 'util/DataLoader'
 require 'model/ConvNet'
+
+local utils = require 'util.utils'
 
 local dtype = 'torch.FloatTensor'
 
