@@ -85,7 +85,6 @@ local params, grad_params = train_cls.params, train_cls.grad_params
 
 function run_on_val_data()
   model:evaluate()
-  model:resetStates()
 
   local val_data_co = coroutine.create(data_loader.next_val_batch)
   train_cls.validate(val_data_co)
@@ -129,11 +128,12 @@ for i=1, opt.max_epochs do
         curr_batches_processed = curr_batches_processed + 1
       else
         local success, x = coroutine.resume(train_data_co, data_loader)
-        assert(coroutine.status(data_co) == 'dead')
+        assert(coroutine.status(train_data_co) == 'dead')
       end
 
       -- Epoch done
-      print('Epoch complete, confusion matrix for Train data:')
+      -- TODO(Mohit): Maybe have a post processing step for printing etc.
+ 
       -- Decay learning rate
       if i % opt.lr_decay_every == 0 then
         local old_lr = optim_config.learningRate
@@ -157,9 +157,6 @@ for i=1, opt.max_epochs do
     local checkpoint = {
       opt = opt,
       desc = opt.desc,
-      train_loss_history = train_loss_history,
-      conf = val_conf:__tostring__(),
-      train_conf = confusion:__tostring__(),
       epoch = i
     }
     -- Add checkpoint items
