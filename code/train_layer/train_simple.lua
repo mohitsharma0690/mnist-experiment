@@ -23,6 +23,10 @@ function train_cls.setup(args)
     val_loss_history={},
     grads_history={},
   }
+
+  print(self.model.net)
+  
+  self.crit = nn.CrossEntropyCriterion():type(self.dtype)
   
   self.params, self.grad_params = self.model:getParameters()
 end
@@ -43,6 +47,9 @@ function train_cls.read_data_co(data_co, data_loader)
   return success,x,y
 end
 
+function train_cls.get_grad_weights()
+end
+
 function train_cls.f(w)
   local self = train_cls
   assert(w == self.params)
@@ -55,12 +62,13 @@ function train_cls.f(w)
   y = utils.convert_to_type(y, self.dtype)
 
   local scores = self.model:forward(x)  -- scores is a table
-  local loss = crit:forward(scores, y)
-  local grad_scores = crit:backward(scores, y) 
-  model:backward(x, grad_scores)
+  local loss = self.crit:forward(scores, y)
+  local grad_scores = self.crit:backward(scores, y) 
+  self.model:backward(x, grad_scores)
 
   if G_global_opts.grad_clip > 0 then
-    grad_params:clamp(-G_global_opts.grad_clip, G_global_opts.grad_clip)
+    self.grad_params:clamp(
+      -G_global_opts.grad_clip, G_global_opts.grad_clip)
   end
 
   -- Add to confusion matrix
@@ -70,11 +78,11 @@ function train_cls.f(w)
   table.insert(self.checkpoint.train_loss_history, loss)
 
   if G_global_opts.debug_weights == 1 then
-    local curr_grad_history = self.model:getGradWeights(loss, x, y) 
-    table.insert(self.checkpoint.grads_history, curr_grad_history)
+    local curr_grad = self.model:getGradWeights(loss, x, y) 
+    table.insert(self.checkpoint.grads_history, curr_grad)
   end
 
-  return loss, grad_params
+  return loss, self.grad_params
 end
 
 function train_cls.validate(val_data_co)
@@ -112,7 +120,7 @@ end
 function train_cls.train(train_data_co, optim_config, stats)
   local self = train_cls
   self.data_co = train_data_co
-  model:training()
+  self.model:training()
 
   local loss
   _, loss = optim.adam(self.f, self.params, optim_config)

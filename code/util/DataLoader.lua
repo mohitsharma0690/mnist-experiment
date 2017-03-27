@@ -13,27 +13,27 @@ function DataLoader:__init(kwargs)
   self.train_h5 = utils.get_kwarg(kwargs, 'train_h5')
   self.test_h5 = utils.get_kwarg(kwargs, 'test_h5')
 
-  self.train_data = self:load_data(self.train_h5, 'train')
-  self.test_data = self.load_data(self.test_h5, 'test')
+  self.train_data = self:load_raw_data(self.train_h5, 'train')
+  self.test_data = self:load_raw_data(self.test_h5, 'test')
 
   print('Did read and load data into memory')
 end
 
 function DataLoader:load_raw_data(h5_file, data_type)
   local h5_f = hdf5.open(h5_file, 'r')
-  local data = hdf5:read('/data'):all()
+  local data = h5_f:read('/data'):all()
   local label, noisy_label
-  label = hdf5:read('/label'):all()
+  label = h5_f:read('/label'):all()
   if data_type == 'train' then
-    noisy_label = hdf5:read('/noisy_label'):all()
+    noisy_label = h5_f:read('/noisy_label'):all()
   end
   local X = torch.Tensor(data:size()):copy(data)
   local y = torch.Tensor(label:size()):copy(label)
   local noisy_y
-  if noisy_y ~= nil then
+  if data_type == 'train' then
     noisy_y = torch.Tensor(noisy_label:size()):copy(noisy_label)
   end
-  return {X=X, y=y, noisy_y = noisy_y}
+  return {X=X, y=y, noisy_y=noisy_y}
 end
 
 function DataLoader:get_features_for_batch(batch_idx, batch_type)
@@ -53,7 +53,8 @@ function DataLoader:get_features_for_batch(batch_idx, batch_type)
   for i=1,#batch_idx do
     local idx = batch_idx[i]
     X[{{i},{}}] = data[{{idx},{}}]:clone()
-    y[{{i}}] = label[{{idx}}]
+    -- Do +1 since torch requires labels to start from 1
+    y[{{i}}] = label[{{idx}}] + 1
   end
 
   return X, y
@@ -80,7 +81,7 @@ function DataLoader:next_train_batch()
   for i=1, num_batches do 
     local batch_data_idx = {}
     for j=1, self.batch_size do
-      local idx = self.shuffle_order[(i-1)*self.batch_size+j]
+      local idx = shuffle_order[(i-1)*self.batch_size+j]
       table.insert(batch_data_idx, idx)
     end
     local X_batch, y_batch = self:get_features_for_batch(batch_data_idx,

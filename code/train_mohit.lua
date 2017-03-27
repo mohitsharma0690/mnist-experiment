@@ -6,8 +6,8 @@ require 'image'
 require 'pl'
 require 'paths'
 
-require 'util/DataLoader'
-require 'model/ConvNet'
+require 'util.DataLoader'
+require 'model.ConvNet'
 
 local utils = require 'util.utils'
 
@@ -69,7 +69,7 @@ print(G_global_opts)
 
 -- Get the main training objects
 local data_loader = DataLoader(opt_clone)
-local model = ConvNet(opt_clone)
+local model = nn.ConvNet(opt_clone)
 model:createModel()
 model:updateType(dtype)
 
@@ -94,6 +94,7 @@ end
 
 local optim_config = {learningRate = opt.learning_rate}
 local curr_batches_processed = 0
+local total_train_batches = math.floor(data_loader:train_data_size()/opt.batch_size)
 
 for i=1, opt.max_epochs do
   train_data_co = coroutine.create(data_loader.next_train_batch)
@@ -102,7 +103,7 @@ for i=1, opt.max_epochs do
   while coroutine.status(train_data_co) ~= 'dead' do
 
     if curr_batches_processed < total_train_batches then
-      local loss = train_cls.train(data_co, optim_config, {
+      local loss = train_cls.train(train_data_co, optim_config, {
         curr_epoch=i,
         total_epoch=opt.max_epochs,
         curr_batch=curr_batches_processed,
