@@ -29,6 +29,7 @@ cmd:option('-grad_clip', 10)
 -- For Adam people don't usually decay the learning rate
 cmd:option('-lr_decay_every', 20)  -- Decay every n epochs
 cmd:option('-lr_decay_factor', 0.5)
+cmd:option('-gpu', 1)
 
 -- Output options
 cmd:option('-save', '')
