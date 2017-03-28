@@ -47,9 +47,6 @@ function train_cls.read_data_co(data_co, data_loader)
   return success,x,y
 end
 
-function train_cls.get_grad_weights()
-end
-
 function train_cls.f(w)
   local self = train_cls
   assert(w == self.params)
