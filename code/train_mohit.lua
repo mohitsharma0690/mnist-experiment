@@ -31,6 +31,13 @@ cmd:option('-lr_decay_every', 20)  -- Decay every n epochs
 cmd:option('-lr_decay_factor', 0.5)
 cmd:option('-gpu', 1)
 
+-- Train options
+cmd:option('-coef_beta_reg', 1)
+cmd:option('-coef_beta_start', 1)
+cmd:option('-coef_beta_end', 0.1) 
+cmd:option('-coef_beta_decay_steps', -1) -- If -1 use total # of iters
+cmd:option('-train_layer', 'train_bootstrap_var')
+
 -- Output options
 cmd:option('-save', '')
 cmd:option('-print_every', 200)-- Print every n batches
@@ -74,7 +81,15 @@ local model = nn.ConvNet(opt_clone)
 model:createModel()
 model:updateType(dtype)
 
-local train_cls = require 'train_layer/train_simple'
+local train_cls
+if opt.train_layer == 'train_simple' then
+  train_cls = require 'train_layer/train_simple'
+elseif opt.train_layer == 'train_bootstrap_var' then
+  train_cls = require 'train_layer/train_bootstrap_var'
+else
+  assert(false)
+end
+
 train_cls.setup{
   dtype=dtype,
   model=model,

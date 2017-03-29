@@ -27,7 +27,8 @@ function train_cls.setup(args)
     beta_loss_history={},
     beta_reg_loss_history={},
     val_loss_history={},
-    beta_history={}
+    beta_history={},
+    grads_history={},
   }
 
   if G_global_opts.save_test_data_stats == 1 then
@@ -42,8 +43,7 @@ function train_cls.setup(args)
   -- The last layer from the model would be 128x5. We remove it to add a
   -- parallel table that predicts y_hat and Beta
   if G_global_opts.save_test_data_stats ~= 1 then
-    self.model.net:remove(9)
-    self.model.net:remove(8)  -- Remove dropout
+    self.model.net:remove(10) -- Remove last linear (class layer)
 
     self.model.net:add(nn.Replicate(2)) -- Copy into two tensors
     self.model.net:add(nn.SplitTable(1)) -- Split above tensor into two outputs
@@ -51,13 +51,13 @@ function train_cls.setup(args)
 
     -- Add the prediction model
     self.pred_model = nn.Sequential()
-    self.pred_model:add(nn.Linear(128, 5))
+    self.pred_model:add(nn.Linear(200, 10))
     self.pred_model:add(nn.LogSoftMax())
     self.final_table:add(self.pred_model)
 
     -- Compute Beta
     self.beta_prob = nn.Sequential()
-    self.beta_prob:add(nn.Linear(128, 1))
+    self.beta_prob:add(nn.Linear(200, 1))
     self.beta_prob:add(nn.Sigmoid())
     self.final_table:add(self.beta_prob)
 
@@ -166,7 +166,7 @@ function train_cls.f_opt_together(w)
   self.model:backward(x, final_grad_scores)
 
   -- Update the confusion matrix
-  self.confusion:batchAdd(scores, y)
+  self.train_conf:batchAdd(scores, y)
 
   -- This by itself is not a correct estimation of the loss but for now its Ok.
   -- Since we should do beta*loss_target + (1-beta)*loss_pred
@@ -188,7 +188,7 @@ function train_cls.f_opt_together(w)
 
   if G_global_opts.debug_weights == 1 then 
     local curr_grad_history = self.model:getGradWeights(loss, x, y) 
-    table.insert(self.grads_history, curr_grad_history)
+    table.insert(self.checkpoint.grads_history, curr_grad_history)
   end
 
   return loss, self.grad_params
@@ -209,9 +209,13 @@ function train_cls.validate(val_data_co)
       yv = utils.convert_to_type(yv, self.dtype)
 
       local scores = self.model:forward(xv)
-      val_loss = val_loss + self.crit:forward(scores, yv)
+      assert(torch.max(scores[1]) == torch.max(scores[1]))
+      val_loss = val_loss + self.crit1:forward(scores[1], yv)
 
-      self.val_conf:batchAdd(scores, yv)
+      -- Since its LogSoftMax we convert it into Softmax to avoid
+      -- NaN issues
+      scores[1] = torch.exp(scores[1])
+      self.val_conf:batchAdd(scores[1], yv)
       num_val = num_val + 1
     elseif success ~= true then
       print('Validation data coroutine failed')
@@ -234,7 +238,8 @@ function train_cls.train(train_data_co, optim_config, stats)
   self.curr_coef_beta = self.get_current_beta(stats)
 
   local loss
-  _, loss = optim.adam(self.f, self.params, optim_config)
+  _, loss = optim.adam(
+      self.f_opt_together, self.params, optim_config)
   table.insert(self.checkpoint.train_loss_history, loss[1]) 
   local msg = 'Epoch: [%d/%d]\t Iteration:[%d/%d]\tTarget(y) loss: %.2f\t'
   msg = msg..'y_hat loss: %.2f\t Actual pred loss: %.2f\t'
@@ -266,3 +271,4 @@ function train_cls.getCheckpoint()
   return cp
 end
 
+return train_cls
