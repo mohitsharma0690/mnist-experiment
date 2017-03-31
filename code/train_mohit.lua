@@ -32,11 +32,16 @@ cmd:option('-lr_decay_factor', 0.5)
 cmd:option('-gpu', 1)
 
 -- Train options
+cmd:option('-coef_beta_const', 0.8)
 cmd:option('-coef_beta_reg', 1)
 cmd:option('-coef_beta_start', 1)
 cmd:option('-coef_beta_end', 0.1) 
 cmd:option('-coef_beta_decay_steps', -1) -- If -1 use total # of iters
 cmd:option('-train_layer', 'train_bootstrap_var')
+cmd:option('-target_loss_coef', 1)
+cmd:option('-pred_loss_coef', 1)
+cmd:option('-beta_loss_coef', 0.1)
+cmd:option('-beta_reg_loss_coef', 0.01)
 
 -- Output options
 cmd:option('-save', '')
@@ -86,6 +91,8 @@ if opt.train_layer == 'train_simple' then
   train_cls = require 'train_layer/train_simple'
 elseif opt.train_layer == 'train_bootstrap_var' then
   train_cls = require 'train_layer/train_bootstrap_var'
+elseif opt.train_layer == 'train_bootstrap_const' then
+  train_cls = require 'train_layer/train_bootstrap_const'
 else
   assert(false)
 end

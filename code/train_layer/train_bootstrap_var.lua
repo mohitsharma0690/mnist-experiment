@@ -79,6 +79,11 @@ function train_cls.setup(args)
   self.coef_beta_end = 0.5
   assert(self.coef_beta ~= nil)
   
+  self.target_loss_coef = utils.get_kwarg(G_global_opts, 'target_loss_coef')
+  self.pred_loss_coef = utils.get_kwarg(G_global_opts, 'pred_loss_coef')
+  self.beta_loss_coef = utils.get_kwarg(G_global_opts, 'beta_loss_coef')
+  self.beta_reg_loss_coef = utils.get_kwarg(G_global_opts, 'beta_reg_loss_coef')
+  
   self.params, self.grad_params = self.model:getParameters()
 end
 
@@ -135,21 +140,22 @@ function train_cls.f_opt_together(w)
   local loss  -- This is the total loss
 
   -- This is sum(y*log(y_hat))
-  local loss_target = self.crit1:forward(scores, y)
+  local loss_target = self.target_loss_coef * self.crit1:forward(scores, y)
   -- This is sum(y_hat * log(y_hat))
   local preds_vec = preds:view(-1)
-  local loss_pred = self.crit2:forward(scores, preds_vec)
+  local loss_pred = self.pred_loss_coef * self.crit2:forward(scores, preds_vec)
 
   -- Calculate the loss with Beta as the target
-  local loss_beta = self.beta_crit:forward(beta, {y, scores})
+  local loss_beta = self.beta_loss_coef * self.beta_crit:forward(beta, {y, scores})
+
   -- Use custom (annealed) beta regularization
   local loss_reg = self.curr_coef_beta * self.beta_reg:forward(beta, expected_beta)
+  loss_reg = self.curr_coef_beta * self.beta_reg_loss_coef * loss_reg
 
-  local grad_target = self.crit1:backward(scores, y)
-  local grad_pred = self.crit2:backward(scores, preds_vec)
-  local grad_beta = self.beta_crit:backward(beta, {y, scores})
-  local grad_reg = self.beta_reg:backward(beta, expected_beta)
-  grad_reg = grad_reg:mul(self.curr_coef_beta)
+  local grad_target = self.crit1:backward(scores, y):mul(self.target_loss_coef)
+  local grad_pred = self.crit2:backward(scores, preds_vec):mul(self.pred_loss_coef)
+  local grad_beta = self.beta_crit:backward(beta, {y, scores}):mul(self.beta_loss_coef)
+  local grad_reg = self.beta_reg:backward(beta, expected_beta):mul(self.curr_coef_beta*self.beta_reg_loss_coef)
 
   -- Expand beta across rows since we use the same value across
   -- all classes
@@ -158,7 +164,8 @@ function train_cls.f_opt_together(w)
   -- Get the cumulative cross entropy gradients by linear combination
   local grad_scores = torch.add(
       grad_target:cmul(beta_exp), grad_pred:cmul(one_minus_beta_exp))
-  grad_beta = grad_beta:add(grad_reg)
+  -- No beta regularization loss
+  -- grad_beta = grad_beta:add(grad_reg)
 
   local final_grad_scores = {grad_scores, grad_beta}
 

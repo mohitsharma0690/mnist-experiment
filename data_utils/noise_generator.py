@@ -49,7 +49,7 @@ def create_noise_map(noise_csv, num_labels=10):
 
     # Create the noise map
     for row in noise_csv_reader:
-      if int(row['new_label']) > 0:
+      if int(row['new_label']) >= 0:
         old_label, new_label = int(row['org_label']), int(row['new_label'])
         prob = float(row['prob'])
         noise_map[old_label].append((new_label, prob))
