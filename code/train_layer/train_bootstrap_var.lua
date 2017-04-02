@@ -238,7 +238,7 @@ function train_cls.validate(val_data_co, save_stats)
         scores_max_idx = torch.totable(scores_max_idx)
         for i=1,#scores_max_idx do table.insert(logs.test_preds, scores_max_idx[i]) end
         local scores_table = torch.totable(scores[1])
-        for i=1,#scores_table do table.insert(logs.test_scores, scores[i]) end
+        for i=1,#scores_table do table.insert(logs.test_scores, scores_table[i]) end
         local beta = torch.totable(scores[2])
         for i=1,#beta do table.insert(logs.test_beta, beta[i]) end
       end

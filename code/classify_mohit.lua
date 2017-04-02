@@ -96,7 +96,7 @@ print(G_global_opts)
 local data_loader = DataLoader(opt_clone)
 local model = torch.load(opt_clone.init_from)
 model = model.model
-model = model:updateType(G_global_opts.dtype)
+if opt.gpu == 1 then model = model:cuda() end
 
 local train_cls
 if opt.train_layer == 'train_simple' then
@@ -119,7 +119,7 @@ train_cls.setup{
 
 data_co = coroutine.create(DataLoader.next_val_batch)
 -- second argument is save_test_data_stats=1
-train_cls.validate(DataLoader.next_val_batch, 1)
+train_cls.validate(data_co, 1)
 local test_data_stats = train_cls.test_data_stats
 
 print(val_conf)
