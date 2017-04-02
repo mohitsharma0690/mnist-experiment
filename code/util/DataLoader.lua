@@ -16,6 +16,8 @@ function DataLoader:__init(kwargs)
   self.train_data = self:load_raw_data(self.train_h5, 'train')
   self.test_data = self:load_raw_data(self.test_h5, 'test')
 
+  self.val_batch_info = utils.get_kwarg(kwargs, 'val_batch_info')
+
   print('Did read and load data into memory')
 end
 
@@ -95,6 +97,26 @@ function DataLoader:val_data_size()
   return self.test_data.X:size(1)
 end
 
+function DataLoader:next_unsorted_train_batch()
+  local total_train_data = self:train_data_size()
+  local num_batches = math.floor(total_train_data / self.batch_size)
+
+  print("Total batches in 1 epoch "..num_batches)
+  local batch = {}
+
+  for i=1, num_batches do 
+    local batch_data_idx = {}
+    for j=1, self.batch_size do
+      local idx = (i-1)*self.batch_size+j
+      table.insert(batch_data_idx, idx)
+    end
+    local X_batch, y_batch = self:get_features_for_batch(batch_data_idx,
+      'train')
+    coroutine.yield(X_batch, y_batch, batch_data_idx)
+    collectgarbage()
+  end
+end
+
 function DataLoader:next_val_batch()
   local total_data = self:val_data_size()
   local num_batches = math.floor(total_data/self.batch_size)
@@ -107,7 +129,8 @@ function DataLoader:next_val_batch()
     if #batch_data_idx == self.batch_size then
       local X_batch, y_batch = self:get_features_for_batch(
         batch_data_idx, 'test')
-      coroutine.yield(X_batch, y_batch)
+      if self.val_batch_info == 1 then coroutine.yield(X_batch, y_batch, batch_data_idx)
+      else coroutine.yield(X_batch, y_batch) end
       collectgarbage()
       batch_data_idx = {}
     end
@@ -115,7 +138,8 @@ function DataLoader:next_val_batch()
   if #batch_data_idx ~= 0 then
     local X_batch, y_batch = self:get_features_for_batch(
       batch_data_idx, 'test')
-    coroutine.yield(X_batch, y_batch)
+    if self.val_batch_info == 1 then coroutine.yield(X_batch, y_batch, batch_data_idx)
+    else coroutine.yield(X_batch, y_batch) end
   end
 end
 

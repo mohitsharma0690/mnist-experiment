@@ -8,6 +8,7 @@ require 'paths'
 require 'optim'
 
 require 'model.MS_BootstrapCrossEntropy'
+require 'model.MS_EntropyRegLoss'
 
 local train_cls = {}
 
@@ -73,7 +74,11 @@ function train_cls.setup(args)
   self.crit2 = nn.ClassNLLCriterion():type(self.dtype)
 
   self.beta_crit = nn.MS_BootstrapCrossEntropy():type(self.dtype)
-  self.beta_reg = nn.MSECriterion():type(self.dtype)
+  if G_global_opts.use_entropy_reg == 1 then
+    self.beta_reg = nn.MS_EntropyRegLoss(3.0):type(self.dtype)
+  else
+    self.beta_reg = nn.MSECriterion():type(self.dtype)
+  end
   self.coef_beta = G_global_opts['coef_beta_reg']
   self.coef_beta_start = self.coef_beta
   self.coef_beta_end = 0.5
@@ -201,14 +206,15 @@ function train_cls.f_opt_together(w)
   return loss, self.grad_params
 end
 
-function train_cls.validate(val_data_co)
+function train_cls.validate(val_data_co, save_stats)
   local self = train_cls
   local val_loss, num_val = 0, 0
+  local save = save_stats or 0
 
   self.val_conf:zero()
 
   while coroutine.status(val_data_co) ~= 'dead' do
-    local success, xv, yv = coroutine.resume(
+    local success, xv, yv, batch = coroutine.resume(
         val_data_co, self.data_loader) 
 
     if success and xv ~= nil then
@@ -224,6 +230,19 @@ function train_cls.validate(val_data_co)
       scores[1] = torch.exp(scores[1])
       self.val_conf:batchAdd(scores[1], yv)
       num_val = num_val + 1
+
+      if save == 1 then
+        local logs = self.test_data_stats
+        local scores_max, scores_max_idx = torch.max(scores[1], 2)
+        for i=1,#batch do table.insert(logs.test_data, batch[i]) end
+        scores_max_idx = torch.totable(scores_max_idx)
+        for i=1,#scores_max_idx do table.insert(logs.test_preds, scores_max_idx[i]) end
+        local scores_table = torch.totable(scores[1])
+        for i=1,#scores_table do table.insert(logs.test_scores, scores[i]) end
+        local beta = torch.totable(scores[2])
+        for i=1,#beta do table.insert(logs.test_beta, beta[i]) end
+      end
+
     elseif success ~= true then
       print('Validation data coroutine failed')
       print(xv)

@@ -21,6 +21,7 @@ cmd:option('-train_h5', '')
 cmd:option('-test_h5', '')
 cmd:option('-num_classify', 10)
 cmd:option('-batch_size', 100)
+cmd:option('-val_batch_info', 0)
 
 -- Optimization options
 cmd:option('-max_epochs', 50)
@@ -32,6 +33,7 @@ cmd:option('-lr_decay_factor', 0.5)
 cmd:option('-gpu', 1)
 
 -- Train options
+cmd:option('-use_entropy_reg', 1)
 cmd:option('-coef_beta_const', 0.8)
 cmd:option('-coef_beta_reg', 1)
 cmd:option('-coef_beta_start', 1)
@@ -51,12 +53,20 @@ cmd:option('-checkpoint_name', 'checkpoint')
 cmd:option('-validate_every_batches', 75) -- Run on validation data ever n batches
 cmd:option('-train_log', 'train.log')
 cmd:option('-test_log', 'test.log')
+cmd:option('-test_batch', 'test_batch.json')
+cmd:option('-test_scores', 'test_scores.json')
+cmd:option('-test_preds', 'test_preds.json')
+cmd:option('-test_beta', 'test_beta.json')
 cmd:option('-debug_weights', 1)
 
 torch.manualSeed(1)
 
 local opt = cmd:parse(arg)
 opt.checkpoint_name = opt.save..'/'..opt.checkpoint_name
+opt.test_scores = opt.save .. '/' .. opt.test_scores
+opt.test_preds = opt.save .. '/' .. opt.test_preds
+opt.test_batch = opt.save .. '/' .. opt.test_batch
+opt.test_beta = opt.save .. '/' .. opt.test_beta
 
 if opt.gpu == 1 then
   require 'cutorch'
