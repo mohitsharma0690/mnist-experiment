@@ -1,12 +1,12 @@
-import time
-import os
-import h5py
-import math
-import sys
-import pdb
-import json
-import itertools
 import csv
+import h5py
+import itertools
+import json
+import math
+import os
+import pdb
+import sys
+import time
 import types
 
 import numpy as np
@@ -641,3 +641,10 @@ def get_bin_in_sorted_list(data, val):
         if v >= val:
             return i
     return len(data)
+
+def read_json(json_file_path):
+    data = None
+    with open(json_file_path, 'r') as fp:
+        data = json.load(fp)
+    return data
+        

@@ -117,7 +117,7 @@ train_cls.setup{
   data_loader=data_loader,
 }
 
-data_co = coroutine.create(DataLoader.next_val_batch)
+data_co = coroutine.create(DataLoader.next_unsorted_train_batch)
 -- second argument is save_test_data_stats=1
 train_cls.validate(data_co, 1)
 local test_data_stats = train_cls.test_data_stats
