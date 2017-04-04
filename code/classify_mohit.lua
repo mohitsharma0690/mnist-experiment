@@ -34,6 +34,7 @@ cmd:option('-gpu', 1)
 
 -- Train options
 cmd:option('-init_from', '')
+cmd:option('-beta_scale', 1)
 cmd:option('-use_entropy_reg', 1)
 cmd:option('-coef_beta_const', 0.8)
 cmd:option('-coef_beta_reg', 1)

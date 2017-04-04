@@ -59,6 +59,11 @@ function train_cls.setup(args)
     -- Compute Beta
     self.beta_prob = nn.Sequential()
     self.beta_prob:add(nn.Linear(200, 1))
+    -- We multiply by a constant so that the probs are either 0 or 1
+    -- since the curve of 1/(1+e(-wx) is much more steeper for w > 1
+    if G_global_opts.beta_scale > 1 then
+      -- self.beta_prob:add(nn.MulConstant(G_global_opts.beta_scale))
+    end
     self.beta_prob:add(nn.Sigmoid())
     self.final_table:add(self.beta_prob)
 
@@ -172,6 +177,12 @@ function train_cls.f_opt_together(w)
   -- Get the cumulative cross entropy gradients by linear combination
   local grad_scores = torch.add(
       grad_target:cmul(beta_exp), grad_pred:cmul(one_minus_beta_exp))
+  --[[
+  print(beta)
+  print(grad_target:cmul(beta_exp))
+  print(grad_pred:cmul(one_minus_beta_exp))
+  print('=======================')
+  ]]
   -- No beta regularization loss
   grad_beta = grad_beta:add(grad_reg)
 

@@ -65,7 +65,7 @@ function MS_BootstrapCrossEntropy:updateGradInput(input, target)
    -- sum[k] (y[k] - y_hat[k])*log(y_hat[k])
    local t = torch.add(target, -1, pred_normal)
    t = t:cmul(pred)
-   self.gradInput = -1 * torch.sum(t, 2)
+   self.gradInput = torch.sum(t, 2):mul(-1)
 
   return self.gradInput
 end
