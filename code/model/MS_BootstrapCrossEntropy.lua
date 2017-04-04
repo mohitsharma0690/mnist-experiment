@@ -1,8 +1,7 @@
 require 'nn';
 local utils = require '../util/utils.lua'
 
-local MS_BootstrapCrossEntropy, Criterion = torch.class('nn.MS_BootstrapCrossEntropy', 'nn.Criterion')
-
+local MS_BootstrapCrossEntropy, Criterion = torch.class('nn.MS_BootstrapCrossEntropy', 'nn.Criterion') 
 function MS_BootstrapCrossEntropy:__init()
    Criterion.__init(self)
    self.hard_beta = false
@@ -66,7 +65,7 @@ function MS_BootstrapCrossEntropy:updateGradInput(input, target)
    -- sum[k] (y[k] - y_hat[k])*log(y_hat[k])
    local t = torch.add(target, -1, pred_normal)
    t = t:cmul(pred)
-   self.gradInput = torch.sum(t, 2)
+   self.gradInput = -1 * torch.sum(t, 2)
 
   return self.gradInput
 end
