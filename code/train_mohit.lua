@@ -43,7 +43,7 @@ cmd:option('-train_layer', 'train_bootstrap_var')
 cmd:option('-target_loss_coef', 1)
 cmd:option('-pred_loss_coef', 1)
 cmd:option('-beta_loss_coef', 0.1)
-cmd:option('-beta_reg_loss_coef', 0.01)
+cmd:option('-beta_reg_loss_coef', 0.1)
 
 -- Output options
 cmd:option('-save', '')
@@ -103,6 +103,8 @@ elseif opt.train_layer == 'train_bootstrap_var' then
   train_cls = require 'train_layer/train_bootstrap_var'
 elseif opt.train_layer == 'train_bootstrap_const' then
   train_cls = require 'train_layer/train_bootstrap_const'
+elseif opt.train_layer == 'train_bootstrap_var_alternate' then
+  train_cls = require 'train_layer/train_bootstrap_var_alternate'
 else
   assert(false)
 end

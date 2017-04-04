@@ -99,6 +99,9 @@ function train_cls.get_current_beta(stats)
   local step = (self.coef_beta_start - self.coef_beta_end) / total_it
   local curr_beta = self.coef_beta_start - done_it * step
   if curr_beta < self.coef_beta_end then curr_beta = self.coef_beta_end end
+
+  -- No beta regularization after 5 epochs!!
+  --if stats.curr_epoch > 5 then return 0 end
   return curr_beta
 end
 
@@ -154,7 +157,7 @@ function train_cls.f_opt_together(w)
   local loss_beta = self.beta_loss_coef * self.beta_crit:forward(beta, {y, scores})
 
   -- Use custom (annealed) beta regularization
-  local loss_reg = self.curr_coef_beta * self.beta_reg:forward(beta, expected_beta)
+  local loss_reg = self.beta_reg:forward(beta, expected_beta)
   loss_reg = self.curr_coef_beta * self.beta_reg_loss_coef * loss_reg
 
   local grad_target = self.crit1:backward(scores, y):mul(self.target_loss_coef)
@@ -170,7 +173,7 @@ function train_cls.f_opt_together(w)
   local grad_scores = torch.add(
       grad_target:cmul(beta_exp), grad_pred:cmul(one_minus_beta_exp))
   -- No beta regularization loss
-  -- grad_beta = grad_beta:add(grad_reg)
+  grad_beta = grad_beta:add(grad_reg)
 
   local final_grad_scores = {grad_scores, grad_beta}
 
@@ -269,7 +272,7 @@ function train_cls.train(train_data_co, optim_config, stats)
   table.insert(self.checkpoint.train_loss_history, loss[1]) 
   local msg = 'Epoch: [%d/%d]\t Iteration:[%d/%d]\tTarget(y) loss: %.2f\t'
   msg = msg..'y_hat loss: %.2f\t Actual pred loss: %.2f\t'
-  msg = msg..'beta_loss: %.2f\t beta_reg_loss: %.2f\t beta:%.2f'
+  msg = msg..'beta_loss: %.2f\t beta_reg_loss: %.4f\t beta:%.2f'
 
   local logs = self.checkpoint
   local args = {
