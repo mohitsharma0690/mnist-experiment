@@ -30,6 +30,8 @@ function train_cls.setup(args)
     val_loss_history={},
     beta_history={},
     grads_history={},
+    grads_beta_reg={},
+    grads_beta={},
   }
 
   if G_global_opts.save_test_data_stats == 1 then
@@ -62,7 +64,7 @@ function train_cls.setup(args)
     -- We multiply by a constant so that the probs are either 0 or 1
     -- since the curve of 1/(1+e(-wx) is much more steeper for w > 1
     if G_global_opts.beta_scale > 1 then
-      -- self.beta_prob:add(nn.MulConstant(G_global_opts.beta_scale))
+      self.beta_prob:add(nn.MulConstant(G_global_opts.beta_scale))
     end
     self.beta_prob:add(nn.Sigmoid())
     self.final_table:add(self.beta_prob)
@@ -85,8 +87,8 @@ function train_cls.setup(args)
     self.beta_reg = nn.MSECriterion():type(self.dtype)
   end
   self.coef_beta = G_global_opts['coef_beta_reg']
-  self.coef_beta_start = self.coef_beta
-  self.coef_beta_end = 0.5
+  self.coef_beta_start = G_global_opts.coef_beta_start
+  self.coef_beta_end = G_global_opts.coef_beta_end
   assert(self.coef_beta ~= nil)
   
   self.target_loss_coef = utils.get_kwarg(G_global_opts, 'target_loss_coef')
@@ -98,10 +100,14 @@ function train_cls.setup(args)
 end
 
 function train_cls.get_current_beta(stats)
+  -- Finish
   local self = train_cls
   local total_it = stats.total_epoch * stats.total_batch
-  local done_it = stats.curr_epoch * stats.total_batch
-  local step = (self.coef_beta_start - self.coef_beta_end) / total_it
+  local decay_it = G_global_opts.coef_beta_decay_steps
+  if decay_it == -1 then decay_it = total_it end
+  local done_it = (stats.curr_epoch - 1) * stats.total_batch + stats.curr_batch
+
+  local step = (self.coef_beta_start - self.coef_beta_end) / decay_it
   local curr_beta = self.coef_beta_start - done_it * step
   if curr_beta < self.coef_beta_end then curr_beta = self.coef_beta_end end
 
@@ -162,6 +168,7 @@ function train_cls.f_opt_together(w)
   local loss_beta = self.beta_loss_coef * self.beta_crit:forward(beta, {y, scores})
 
   -- Use custom (annealed) beta regularization
+  --print(beta)
   local loss_reg = self.beta_reg:forward(beta, expected_beta)
   loss_reg = self.curr_coef_beta * self.beta_reg_loss_coef * loss_reg
 
@@ -215,6 +222,9 @@ function train_cls.f_opt_together(w)
   if G_global_opts.debug_weights == 1 then 
     local curr_grad_history = self.model:getGradWeights(loss, x, y) 
     table.insert(self.checkpoint.grads_history, curr_grad_history)
+    -- Add beta gradients 
+    table.insert(self.checkpoint.grads_beta_reg, torch.max(torch.abs(grad_reg)))
+    table.insert(self.checkpoint.grads_beta, torch.max(torch.abs(grad_beta)))
   end
 
   return loss, self.grad_params
@@ -285,19 +295,27 @@ function train_cls.train(train_data_co, optim_config, stats)
   msg = msg..'y_hat loss: %.2f\t Actual pred loss: %.2f\t'
   msg = msg..'beta_loss: %.2f\t beta_reg_loss: %.4f\t beta:%.2f'
 
-  local logs = self.checkpoint
-  local args = {
-    msg,
-    stats.curr_epoch, stats.total_epoch,
-    stats.curr_batch, stats.total_batch,
-    logs.crit1_loss_history[#logs.crit1_loss_history],
-    logs.crit2_loss_history[#logs.crit2_loss_history],
-    logs.pred_loss_history[#logs.pred_loss_history],
-    logs.beta_loss_history[#logs.beta_loss_history],
-    logs.beta_reg_loss_history[#logs.beta_reg_loss_history],
-    logs.beta_history[#logs.beta_history],
-  }
-  print(string.format(unpack(args)))
+  if (stats.curr_batch > 0 and stats.curr_batch % G_global_opts.print_every == 0) then
+
+    local logs = self.checkpoint
+    local args = {
+      msg,
+      stats.curr_epoch, stats.total_epoch,
+      stats.curr_batch, stats.total_batch,
+      logs.crit1_loss_history[#logs.crit1_loss_history],
+      logs.crit2_loss_history[#logs.crit2_loss_history],
+      logs.pred_loss_history[#logs.pred_loss_history],
+      logs.beta_loss_history[#logs.beta_loss_history],
+      logs.beta_reg_loss_history[#logs.beta_reg_loss_history],
+      logs.beta_history[#logs.beta_history],
+    }
+    print("Gradients: ")
+    print(logs.grads_history[#logs.grads_history])
+    print(string.format(unpack(args)))
+    print(string.format("Beta gradient: %.6f", logs.grads_beta[#logs.grads_beta]))
+    print(string.format("Beta reg gradient: %.6f", 
+        logs.grads_beta_reg[#logs.grads_beta_reg]))
+  end
 
   return loss
 end

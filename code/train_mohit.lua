@@ -34,12 +34,12 @@ cmd:option('-gpu', 1)
 
 -- Train options
 cmd:option('-beta_scale', 1)
-cmd:option('-use_entropy_reg', 1)
+cmd:option('-use_entropy_reg', 0)
 cmd:option('-coef_beta_const', 0.8)
 cmd:option('-coef_beta_reg', 1)
 cmd:option('-coef_beta_start', 1)
-cmd:option('-coef_beta_end', 0.1) 
-cmd:option('-coef_beta_decay_steps', -1) -- If -1 use total # of iters
+cmd:option('-coef_beta_end', 0.01) 
+cmd:option('-coef_beta_decay_steps', 5000) -- In iterations if -1 use total # of iters
 cmd:option('-train_layer', 'train_bootstrap_var')
 cmd:option('-target_loss_coef', 1)
 cmd:option('-pred_loss_coef', 1)
