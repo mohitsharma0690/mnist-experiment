@@ -310,11 +310,12 @@ function train_cls.train(train_data_co, optim_config, stats)
       logs.beta_history[#logs.beta_history],
     }
     print("Gradients: ")
-    print(logs.grads_history[#logs.grads_history])
+    local grads_log = torch.deserialize(
+        torch.serialize(logs.grads_history[#logs.grads_history]))
+    grads_log['grad_beta'] = logs.grads_beta[#logs.grads_beta]
+    grads_log['grad_beta_reg'] = logs.grads_beta_reg[#logs.grads_beta_reg]
+    print(grads_log)
     print(string.format(unpack(args)))
-    print(string.format("Beta gradient: %.6f", logs.grads_beta[#logs.grads_beta]))
-    print(string.format("Beta reg gradient: %.6f", 
-        logs.grads_beta_reg[#logs.grads_beta_reg]))
   end
 
   return loss

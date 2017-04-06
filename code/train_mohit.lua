@@ -106,6 +106,8 @@ elseif opt.train_layer == 'train_bootstrap_const' then
   train_cls = require 'train_layer/train_bootstrap_const'
 elseif opt.train_layer == 'train_bootstrap_var_alternate' then
   train_cls = require 'train_layer/train_bootstrap_var_alternate'
+elseif opt.train_layer == 'train_simple_conf' then
+  train_cls = require 'train_layer/train_simple_conf'
 else
   assert(false)
 end
