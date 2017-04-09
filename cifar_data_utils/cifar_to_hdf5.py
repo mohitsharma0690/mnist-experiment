@@ -73,16 +73,16 @@ def main(dir_pkl, dir_h5):
   '''
   train_data = [f for f in os.listdir(dir_pkl) if f.startswith('data_batch')]
   test_data = [f for f in os.listdir(dir_pkl) if f.startswith('test_batch')]
-  train_data_h5 = {'data': [], 'labels': []}
+  train_data_h5 = {'data': [], 'label': []}
   for f in train_data:
     f_data = unpickle(os.path.join(dir_pkl, f))
     train_data_h5['data'] = convert_data_to_3d(f_data['data'])
-    train_data_h5['labels'] = np.array(f_data['labels'], dtype=np.int32)
+    train_data_h5['label'] = np.array(f_data['labels'], dtype=np.int32)
 
   train_h5_path = os.path.join(dir_h5, 'train_data.h5')
   train_h5 = h5py.File(train_h5_path, 'w')
   train_data_h5['data'] = np.hstack(train_data_h5['data'])
-  train_data_h5['labels'] = np.hstack(train_data_h5['labels'])
+  train_data_h5['label'] = np.hstack(train_data_h5['label'])
   recursively_save_dict_contents_to_group(train_h5, '/', train_data_h5)
   train_h5.flush()
   train_h5.close()
@@ -93,7 +93,7 @@ def main(dir_pkl, dir_h5):
   test_data_h5 = {}
   test_data = unpickle(os.path.join(dir_pkl, test_data[0]))
   test_data['data'] = convert_data_to_3d(test_data['data'])
-  test_data['labels'] = np.array(test_data['labels'], dtype=np.int32)
+  test_data['label'] = np.array(test_data['labels'], dtype=np.int32)
   test_h5_path = os.path.join(dir_h5, 'test_data.h5')
   test_h5  = h5py.File(test_h5_path, 'w')
   recursively_save_dict_contents_to_group(test_h5, '/', test_data)
