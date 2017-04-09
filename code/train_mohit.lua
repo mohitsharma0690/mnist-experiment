@@ -17,10 +17,13 @@ local cmd = torch.CmdLine()
 
 cmd:option('-desc', '')
 -- Dataset options
+cmd:option('-cifar', 0)
+cmd:option('-use_noise', 1)
+cmd:option('-use_cached_cifar_data', 1)
 cmd:option('-train_h5', '')
 cmd:option('-test_h5', '')
 cmd:option('-num_classify', 10)
-cmd:option('-batch_size', 100)
+cmd:option('-batch_size', 200)
 cmd:option('-val_batch_info', 0)
 
 -- Optimization options

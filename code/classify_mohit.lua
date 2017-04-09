@@ -17,6 +17,8 @@ local cmd = torch.CmdLine()
 
 cmd:option('-desc', '')
 -- Dataset options
+cmd:option('-cifar', 0)
+cmd:option('-use_noise', 1)
 cmd:option('-train_h5', '')
 cmd:option('-test_h5', '')
 cmd:option('-num_classify', 10)

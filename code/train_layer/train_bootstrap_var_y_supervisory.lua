@@ -30,8 +30,6 @@ function train_cls.setup(args)
     val_loss_history={},
     beta_history={},
     grads_history={},
-    grads_beta_reg={},
-    grads_beta={},
   }
 
   if G_global_opts.save_test_data_stats == 1 then
@@ -61,11 +59,6 @@ function train_cls.setup(args)
     -- Compute Beta
     self.beta_prob = nn.Sequential()
     self.beta_prob:add(nn.Linear(200, 1))
-    -- We multiply by a constant so that the probs are either 0 or 1
-    -- since the curve of 1/(1+e(-wx) is much more steeper for w > 1
-    if G_global_opts.beta_scale > 1 then
-      self.beta_prob:add(nn.MulConstant(G_global_opts.beta_scale))
-    end
     self.beta_prob:add(nn.Sigmoid())
     self.final_table:add(self.beta_prob)
 
@@ -87,8 +80,8 @@ function train_cls.setup(args)
     self.beta_reg = nn.MSECriterion():type(self.dtype)
   end
   self.coef_beta = G_global_opts['coef_beta_reg']
-  self.coef_beta_start = G_global_opts.coef_beta_start
-  self.coef_beta_end = G_global_opts.coef_beta_end
+  self.coef_beta_start = self.coef_beta
+  self.coef_beta_end = 0.5
   assert(self.coef_beta ~= nil)
   
   self.target_loss_coef = utils.get_kwarg(G_global_opts, 'target_loss_coef')
@@ -100,19 +93,12 @@ function train_cls.setup(args)
 end
 
 function train_cls.get_current_beta(stats)
-  -- Finish
   local self = train_cls
   local total_it = stats.total_epoch * stats.total_batch
-  local decay_it = G_global_opts.coef_beta_decay_steps
-  if decay_it == -1 then decay_it = total_it end
-  local done_it = (stats.curr_epoch - 1) * stats.total_batch + stats.curr_batch
-
-  local step = (self.coef_beta_start - self.coef_beta_end) / decay_it
+  local done_it = stats.curr_epoch * stats.total_batch
+  local step = (self.coef_beta_start - self.coef_beta_end) / total_it
   local curr_beta = self.coef_beta_start - done_it * step
   if curr_beta < self.coef_beta_end then curr_beta = self.coef_beta_end end
-
-  -- No beta regularization after 5 epochs!!
-  --if stats.curr_epoch > 5 then return 0 end
   return curr_beta
 end
 
@@ -132,14 +118,28 @@ function train_cls.read_data_co(data_co, data_loader)
   return success,x,y
 end
 
-function train_cls.f_opt_together(w)
+function train_cls.f(w)
   local self = train_cls
   assert(w == self.params)
   self.grad_params:zero()
 
-  local success, x, y = self.read_data_co(self.data_co, self.data_loader)
-  if not x then return 0, self.grad_params end
-  
+  local success, x, y
+
+  -- Get the data and store it for the next iteration (to optimize Beta)
+  if self.train_pred_model then
+    success, x, y = self.read_data_co(self.data_co, self.data_loader)
+    if not x then return 0, self.grad_params end
+    if x ~= nil then 
+      self.train_x = torch.deserialize(torch.serialize(x))
+      self.train_y = y:clone()
+    else
+      self.train_x, self.train_y = nil, nil
+    end
+  else
+    success, x, y = true, self.train_x, self.train_y
+    if x == nil or y ==  nil then success = false end
+  end
+
   x = utils.convert_to_type(x, self.dtype)
   y = utils.convert_to_type(y, self.dtype)
 
@@ -158,73 +158,83 @@ function train_cls.f_opt_together(w)
 
   local loss  -- This is the total loss
 
-  -- This is sum(y*log(y_hat))
-  local loss_target = self.target_loss_coef * self.crit1:forward(scores, y)
-  -- This is sum(y_hat * log(y_hat))
-  local preds_vec = preds:view(-1)
-  local loss_pred = self.pred_loss_coef * self.crit2:forward(scores, preds_vec)
+  if self.train_pred_model then
+    -- This is sum(y*log(y_hat))
+    local loss_target = self.target_loss_coef * self.crit1:forward(scores, y)
+    -- This is sum(y_hat * log(y_hat))
+    local preds_vec = preds:view(-1)
+    local loss_pred = self.pred_loss_coef * self.crit2:forward(scores, preds_vec)
 
-  -- Calculate the loss with Beta as the target
-  local loss_beta = self.beta_loss_coef * self.beta_crit:forward(beta, {y, scores})
+    -- Get gradients for the above two criterions
+    local grad_target = self.crit1:backward(scores, y):mul(self.target_loss_coef)
+    local grad_pred = self.crit2:backward(scores, preds_vec):mul(self.pred_loss_coef)
 
-  -- Use custom (annealed) beta regularization
-  --print(beta)
-  local loss_reg = self.beta_reg:forward(beta, expected_beta)
-  loss_reg = self.curr_coef_beta * self.beta_reg_loss_coef * loss_reg
+    -- Expand beta across rows since we use the same value across
+    -- all classes
+    local beta_exp = torch.expand(beta, beta:size(1), grad_target:size(2))
+    local one_minus_beta_exp = torch.expand(one_minus_beta, beta:size(1), grad_pred:size(2))
+    -- Get the cumulative cross entropy gradients by linear combination
+    local grad_scores = torch.add(
+        grad_target:cmul(beta_exp), grad_pred:cmul(one_minus_beta_exp))
 
-  local grad_target = self.crit1:backward(scores, y):mul(self.target_loss_coef)
-  local grad_pred = self.crit2:backward(scores, preds_vec):mul(self.pred_loss_coef)
-  local grad_beta = self.beta_crit:backward(beta, {y, scores}):mul(self.beta_loss_coef)
-  local grad_reg = self.beta_reg:backward(beta, expected_beta):mul(self.curr_coef_beta*self.beta_reg_loss_coef)
+    local final_grad_scores = {grad_scores, torch.Tensor(beta:size()):zero()}
+    final_grad_scores[2] = final_grad_scores[2]:type(self.dtype)
 
-  -- Expand beta across rows since we use the same value across
-  -- all classes
-  local beta_exp = torch.expand(beta, beta:size(1), grad_target:size(2))
-  local one_minus_beta_exp = torch.expand(one_minus_beta, beta:size(1), grad_pred:size(2))
-  -- Get the cumulative cross entropy gradients by linear combination
-  local grad_scores = torch.add(
-      grad_target:cmul(beta_exp), grad_pred:cmul(one_minus_beta_exp))
-  --[[
-  print(beta)
-  print(grad_target:cmul(beta_exp))
-  print(grad_pred:cmul(one_minus_beta_exp))
-  print('=======================')
-  ]]
-  -- No beta regularization loss
-  grad_beta = grad_beta:add(grad_reg)
+    -- Backprop the gradient
+    self.model:backward(x, final_grad_scores)
 
-  local final_grad_scores = {grad_scores, grad_beta}
+    -- Update confusion matrix
+    self.train_conf:batchAdd(scores, y)
 
-  -- Backrop the gradient
-  self.model:backward(x, final_grad_scores)
+    -- This by itself is not a correct estimation of the loss but for now
+    -- its Ok. Since we should do beta*loss_target + (1-beta)*loss_pred
+    local total_pred_loss = torch.add(
+        loss_target * beta, loss_pred * one_minus_beta)
+    total_pred_loss = total_pred_loss:sum() / y:size(1)
 
-  -- Update the confusion matrix
-  self.train_conf:batchAdd(scores, y)
+    loss = total_pred_loss
 
-  -- This by itself is not a correct estimation of the loss but for now its Ok.
-  -- Since we should do beta*loss_target + (1-beta)*loss_pred
-  local total_pred_loss = torch.add(loss_target * beta, loss_pred * one_minus_beta)
-  total_pred_loss = total_pred_loss:sum() / y:size(1)
-  
-  loss = loss_target + loss_pred + loss_beta + loss_reg
+    -- Add to history
+    table.insert(self.checkpoint.crit1_loss_history, loss_target)
+    table.insert(self.checkpoint.crit2_loss_history, loss_pred)
+    table.insert(self.checkpoint.pred_loss_history, total_pred_loss)
 
-  table.insert(self.checkpoint.crit1_loss_history, loss_target)
-  table.insert(self.checkpoint.crit2_loss_history, loss_pred)
-  table.insert(self.checkpoint.pred_loss_history, total_pred_loss)
-  table.insert(self.checkpoint.beta_loss_history, loss_beta)
-  table.insert(self.checkpoint.beta_reg_loss_history, loss_reg)
-  table.insert(self.checkpoint.beta_history, self.curr_coef_beta)
+  else
+
+    -- Calculate the loss with Beta as the target
+    local loss_beta = self.beta_loss_coef * self.beta_crit:forward(beta, {y, scores})
+
+    -- Use custom (annealed) beta regularization
+    local loss_reg = self.curr_coef_beta * self.beta_reg:forward(beta, expected_beta)
+    loss_reg = self.curr_coef_beta * self.beta_reg_loss_coef * loss_reg
+
+    local grad_beta = self.beta_crit:backward(beta, {y, scores}):mul(self.beta_loss_coef)
+    local grad_reg = self.beta_reg:backward(beta, expected_beta):mul(self.curr_coef_beta*self.beta_reg_loss_coef)
+
+    grad_beta = grad_beta:add(grad_reg)
+
+    local final_grad_scores = {torch.Tensor(scores:size()):zero(), grad_beta}
+    final_grad_scores[1] = final_grad_scores[1]:type(self.dtype)
+
+    -- Backprop the gradient
+    self.model:backward(x, final_grad_scores)
+
+    loss = loss_beta + loss_reg
+
+    -- Add to history
+    table.insert(self.checkpoint.beta_loss_history, loss_beta)
+    table.insert(self.checkpoint.beta_reg_loss_history, loss_reg)
+    table.insert(self.checkpoint.beta_history, self.curr_coef_beta)
+  end
 
   if G_global_opts.grad_clip > 0 then
-    self.grad_params:clamp(-G_global_opts.grad_clip, G_global_opts.grad_clip)
+    self.grad_params:clamp(
+        -G_global_opts.grad_clip, G_global_opts.grad_clip)
   end
 
   if G_global_opts.debug_weights == 1 then 
     local curr_grad_history = self.model:getGradWeights(loss, x, y) 
     table.insert(self.checkpoint.grads_history, curr_grad_history)
-    -- Add beta gradients 
-    table.insert(self.checkpoint.grads_beta_reg, torch.max(torch.abs(grad_reg)))
-    table.insert(self.checkpoint.grads_beta, torch.max(torch.abs(grad_beta)))
   end
 
   return loss, self.grad_params
@@ -286,42 +296,34 @@ function train_cls.train(train_data_co, optim_config, stats)
   self.model:training()
 
   self.curr_coef_beta = self.get_current_beta(stats)
-  if self.curr_coef_beta <= 0.1 then
-    optim_config.learningRate = 1e-6
-  end
+  self.train_pred_model = true
 
-  local loss
-  _, loss = optim.adam(
-      self.f_opt_together, self.params, optim_config)
-  table.insert(self.checkpoint.train_loss_history, loss[1]) 
+  local loss1, loss2
+  _, loss1 = optim.adam(self.f, self.params, optim_config)
+  table.insert(self.checkpoint.train_loss_history, loss1[1]) 
+
+  self.train_pred_model = false
+  _, loss2 = optim.adam(self.f, self.params, optim_config)
+
   local msg = 'Epoch: [%d/%d]\t Iteration:[%d/%d]\tTarget(y) loss: %.2f\t'
   msg = msg..'y_hat loss: %.2f\t Actual pred loss: %.2f\t'
-  msg = msg..'beta_loss: %.2f\t beta_reg_loss: %.4f\t beta:%.2f'
+  msg = msg..'beta_loss: %.2f\t beta_reg_loss: %.2f\t beta:%.2f'
 
-  if (stats.curr_batch > 0 and stats.curr_batch % G_global_opts.print_every == 0) then
+  local logs = self.checkpoint
+  local args = {
+    msg,
+    stats.curr_epoch, stats.total_epoch,
+    stats.curr_batch, stats.total_batch,
+    logs.crit1_loss_history[#logs.crit1_loss_history],
+    logs.crit2_loss_history[#logs.crit2_loss_history],
+    logs.pred_loss_history[#logs.pred_loss_history],
+    logs.beta_loss_history[#logs.beta_loss_history],
+    logs.beta_reg_loss_history[#logs.beta_reg_loss_history],
+    logs.beta_history[#logs.beta_history],
+  }
+  print(string.format(unpack(args)))
 
-    local logs = self.checkpoint
-    local args = {
-      msg,
-      stats.curr_epoch, stats.total_epoch,
-      stats.curr_batch, stats.total_batch,
-      logs.crit1_loss_history[#logs.crit1_loss_history],
-      logs.crit2_loss_history[#logs.crit2_loss_history],
-      logs.pred_loss_history[#logs.pred_loss_history],
-      logs.beta_loss_history[#logs.beta_loss_history],
-      logs.beta_reg_loss_history[#logs.beta_reg_loss_history],
-      logs.beta_history[#logs.beta_history],
-    }
-    print("Gradients: ")
-    local grads_log = torch.deserialize(
-        torch.serialize(logs.grads_history[#logs.grads_history]))
-    grads_log['grad_beta'] = logs.grads_beta[#logs.grads_beta]
-    grads_log['grad_beta_reg'] = logs.grads_beta_reg[#logs.grads_beta_reg]
-    print(grads_log)
-    print(string.format(unpack(args)))
-  end
-
-  return loss
+  return loss1
 end
 
 function train_cls.getCheckpoint()

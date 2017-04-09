@@ -54,16 +54,16 @@ function train_cls.get_loss_confusion()
   local conf = torch.ones(G_global_opts.num_classify, G_global_opts.num_classify)
   conf = conf:mul(0.02)
   -- Add custom confusions here
-  conf[1][10] = 0.5
-  conf[2][8] = 0.5
-  conf[3][6] = 0.5
-  conf[4][9] = 0.5
-  conf[5][7] = 0.5
-  conf[6][3] = 0.5
-  conf[7][1] = 0.5
-  conf[8][5] = 0.5
-  conf[9][4] = 0.5
-  conf[10][2] = 0.5
+  conf[1][10] = 0.2
+  conf[2][8] = 0.2
+  conf[3][6] = 0.2
+  conf[4][9] = 0.2
+  conf[5][7] = 0.2
+  conf[6][3] = 0.2
+  conf[7][1] = 0.2
+  conf[8][5] = 0.2
+  conf[9][4] = 0.2
+  conf[10][2] = 0.2
   return conf
 end
 
