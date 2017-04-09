@@ -76,12 +76,12 @@ def main(dir_pkl, dir_h5):
   train_data_h5 = {'data': [], 'label': []}
   for f in train_data:
     f_data = unpickle(os.path.join(dir_pkl, f))
-    train_data_h5['data'] = convert_data_to_3d(f_data['data'])
-    train_data_h5['label'] = np.array(f_data['labels'], dtype=np.int32)
+    train_data_h5['data'].append(convert_data_to_3d(f_data['data']))
+    train_data_h5['label'].append(np.array(f_data['labels'], dtype=np.int32))
 
   train_h5_path = os.path.join(dir_h5, 'train_data.h5')
   train_h5 = h5py.File(train_h5_path, 'w')
-  train_data_h5['data'] = np.hstack(train_data_h5['data'])
+  train_data_h5['data'] = np.vstack(train_data_h5['data'])
   train_data_h5['label'] = np.hstack(train_data_h5['label'])
   recursively_save_dict_contents_to_group(train_h5, '/', train_data_h5)
   train_h5.flush()

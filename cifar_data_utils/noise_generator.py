@@ -78,7 +78,7 @@ def add_noise(y, noise_csv, num_labels=10):
   noisy_y = np.array(y, dtype=int)
   # Add csv defined confusion noise
   for i in xrange(y.shape[0]):
-    org, new_label = y[i][0], -1
+    org, new_label = y[i], -1
     p, total_p = np.random.rand(), 0
     for noise_label, noise_prob in noise_map[org]:
       total_p += p
@@ -93,9 +93,9 @@ def add_noise(y, noise_csv, num_labels=10):
   for i in xrange(y.shape[0]):
     # Only add random noise to clean samples i.e. for samples which we haven't
     # already added noise to
-    if y[i, 0] == noisy_y[i, 0] and \
-        np.random.rand() < random_noise_prob[y[i, 0]]:
-      noisy_y[i, 0] = np.random.randint(num_labels)
+    if y[i] == noisy_y[i] and \
+        np.random.rand() < random_noise_prob[y[i]]:
+      noisy_y[i] = np.random.randint(num_labels)
 
   assert(y.shape == noisy_y.shape)
   return y, noisy_y
@@ -120,7 +120,7 @@ def main(data_h5, new_data_h5, noise_csv):
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(
-      description='Add noise to mnist labels.')
+      description='Add noise to cifar10 labels.')
   parser.add_argument('--data_h5', nargs='?', type=str, const=1,
       required=True, default='', help='h5 file containing the original labels')
   parser.add_argument('--new_data_h5', nargs='?', type=str, const=1,
