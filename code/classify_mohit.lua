@@ -99,7 +99,7 @@ print(G_global_opts)
 local data_loader = DataLoader(opt_clone)
 local model = torch.load(opt_clone.init_from)
 model = model.model
-if opt.gpu == 1 then model = model:cuda() end
+if opt.gpu == 1 and opt.cifar ~= 1 then model = model:cuda() end
 
 local train_cls
 if opt.train_layer == 'train_simple' then
@@ -108,6 +108,8 @@ elseif opt.train_layer == 'train_bootstrap_var' then
   train_cls = require 'train_layer/train_bootstrap_var'
 elseif opt.train_layer == 'train_bootstrap_const' then
   train_cls = require 'train_layer/train_bootstrap_const'
+elseif opt.train_layer == 'train_layer/train_bootstrap_const_top2' then
+  train_cls = require 'train_layer/train_bootstrap_const_top2'
 else
   assert(false)
 end

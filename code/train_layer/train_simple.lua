@@ -55,8 +55,13 @@ function train_cls.f(w)
   local success, x, y = self.read_data_co(self.data_co, self.data_loader)
   if not x then return 0, self.grad_params end
 
-  x = utils.convert_to_type(x, self.dtype)
-  y = utils.convert_to_type(y, self.dtype)
+  if G_global_opts.cifar == 1 then
+    x = utils.convert_to_type(x, 'torch.FloatTensor')
+    y = utils.convert_to_type(y, 'torch.FloatTensor')
+  else
+    x = utils.convert_to_type(x, self.dtype)
+    y = utils.convert_to_type(y, self.dtype)
+  end
 
   local scores = self.model:forward(x)  -- scores is a table
   local loss = self.crit:forward(scores, y)
@@ -93,8 +98,13 @@ function train_cls.validate(val_data_co)
         val_data_co, self.data_loader) 
 
     if success and xv ~= nil then
-      xv = utils.convert_to_type(xv, self.dtype)
-      yv = utils.convert_to_type(yv, self.dtype)
+      if G_global_opts.cifar == 1 then
+        xv = utils.convert_to_type(xv, 'torch.FloatTensor')
+        yv = utils.convert_to_type(yv, 'torch.FloatTensor')
+      else
+        xv = utils.convert_to_type(xv, self.dtype)
+        yv = utils.convert_to_type(yv, self.dtype)
+      end
 
       local scores = self.model:forward(xv)
       val_loss = val_loss + self.crit:forward(scores, yv)
@@ -121,7 +131,11 @@ function train_cls.train(train_data_co, optim_config, stats)
 
   local loss
   _, loss = optim.adam(self.f, self.params, optim_config)
-  print(string.format('Train loss: %.2f', loss[1]))
+  if (stats.curr_batch > 0 and stats.curr_batch % G_global_opts.print_every == 0) then
+    local logs = self.checkpoint
+    print(string.format('Train loss: %.2f', loss[1]))
+    print(logs.grads_history[#logs.grads_history])
+  end
 
   return loss
 end

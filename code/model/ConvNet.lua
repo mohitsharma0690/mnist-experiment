@@ -1,6 +1,8 @@
 require 'torch'
 require 'nn'
 require 'loadcaffe'
+require 'image'
+require 'xlua'
 
 local utils = require 'util.utils'
 
@@ -107,9 +109,46 @@ function ConvNet:getCifar10Model()
   return vgg
 end
 
+function ConvNet:addRandomFlips(old_model)
+  do -- data augmentation module
+    local BatchFlip,parent = torch.class('nn.BatchFlip', 'nn.Module')
+
+    function BatchFlip:__init()
+      parent.__init(self)
+      self.train = true
+    end
+
+    function BatchFlip:updateOutput(input)
+      if self.train then
+        local bs = input:size(1)
+        local flip_mask = torch.randperm(bs):le(bs/2)
+        for i=1,input:size(1) do
+          if flip_mask[i] == 1 then 
+            image.hflip(input[i], input[i]) 
+          end
+        end
+      end
+      self.output:set(input)
+      return self.output
+    end
+  end
+
+  local final_model = nn.Sequential()
+  final_model:add(nn.BatchFlip():float())
+  local c = nn.Copy('torch.FloatTensor', 'torch.CudaTensor')
+  final_model:add(c:cuda())
+  final_model:add(old_model:cuda())
+  final_model:get(2).updateGradInput = function(input) return end
+  return final_model 
+end
+
 function ConvNet:getGradWeights(loss, x, y)
   local grad_threshold = G_global_opts.grad_threshold or 1e-5
-  local wt_1, grad_wt_1 = self.net:get(1):parameters()
+  local layer_idx = 1
+  if G_global_opts.cifar == 1 and G_global_opts.cifar_hflip == 1 then
+    layer_idx = 3
+  end
+  local wt_1, grad_wt_1 = self.net:get(layer_idx):parameters()
   local grad_wt_1_f = grad_wt_1[1]:float()
   grad_wt_1 = torch.max(torch.abs(grad_wt_1_f))
   -- Get grad weights above threshold
@@ -135,7 +174,9 @@ end
 
 function ConvNet:createModel()
   local model
-  if G_global_opts.cifar == 1 then model = self:getCifar10Model() 
+  if G_global_opts.cifar == 1 then 
+    model = self:getCifar10Model() 
+    model = self:addRandomFlips(model)
   else model = self:getSimpleModel() end
   self.net = model
 end

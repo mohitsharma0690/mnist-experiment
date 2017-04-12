@@ -46,21 +46,29 @@ function train_cls.setup(args)
   -- The last layer from the model would be 128x5. We remove it to add a
   -- parallel table that predicts y_hat and Beta
   if G_global_opts.save_test_data_stats ~= 1 then
-    self.model.net:remove(10) -- Remove last linear (class layer)
+    local m = self.model.net
+    local in_size = 200
+    if G_global_opts.cifar == 1 then
+      m = self.model.net:get(3):get(54)
+      m:remove(6)
+      in_size = 512
+    else
+      self.model.net:remove(10) -- Remove last linear (class layer)
+    end
 
-    self.model.net:add(nn.Replicate(2)) -- Copy into two tensors
-    self.model.net:add(nn.SplitTable(1)) -- Split above tensor into two outputs
+    m:add(nn.Replicate(2)) -- Copy into two tensors
+    m:add(nn.SplitTable(1)) -- Split above tensor into two outputs
     self.final_table = nn.ParallelTable()
 
     -- Add the prediction model
     self.pred_model = nn.Sequential()
-    self.pred_model:add(nn.Linear(200, 10))
+    self.pred_model:add(nn.Linear(in_size, 10))
     self.pred_model:add(nn.LogSoftMax())
     self.final_table:add(self.pred_model)
 
     -- Compute Beta
     self.beta_prob = nn.Sequential()
-    self.beta_prob:add(nn.Linear(200, 1))
+    self.beta_prob:add(nn.Linear(in_size, 1))
     -- We multiply by a constant so that the probs are either 0 or 1
     -- since the curve of 1/(1+e(-wx) is much more steeper for w > 1
     if G_global_opts.beta_scale > 1 then
@@ -69,11 +77,15 @@ function train_cls.setup(args)
     self.beta_prob:add(nn.Sigmoid())
     self.final_table:add(self.beta_prob)
 
-    self.model.net:add(self.final_table)
+    m:add(self.final_table)
 
     self.model:updateType(self.dtype)
-  end
 
+    if G_global_opts.cifar == 1 then
+      -- The first layer is flip layer
+      self.model.net:get(1):float()
+    end
+  end
 
   print(self.model.net)
   
@@ -140,8 +152,13 @@ function train_cls.f_opt_together(w)
   local success, x, y = self.read_data_co(self.data_co, self.data_loader)
   if not x then return 0, self.grad_params end
   
-  x = utils.convert_to_type(x, self.dtype)
-  y = utils.convert_to_type(y, self.dtype)
+  if G_global_opts.cifar == 1 then
+    x = utils.convert_to_type(x, 'torch.FloatTensor')
+    y = utils.convert_to_type(y, 'torch.CudaTensor')
+  else
+    x = utils.convert_to_type(x, self.dtype)
+    y = utils.convert_to_type(y, self.dtype)
+  end
 
   local scores = self.model:forward(x)  -- scores is a table
   -- scores[1] is the target scores and scores[2] are the Beta scores (confidence)
@@ -242,8 +259,13 @@ function train_cls.validate(val_data_co, save_stats)
         val_data_co, self.data_loader) 
 
     if success and xv ~= nil then
-      xv = utils.convert_to_type(xv, self.dtype)
-      yv = utils.convert_to_type(yv, self.dtype)
+      if G_global_opts.cifar == 1 then
+        xv = utils.convert_to_type(xv, 'torch.FloatTensor')
+        yv = utils.convert_to_type(yv, 'torch.CudaTensor')
+      else
+        xv = utils.convert_to_type(xv, self.dtype)
+        yv = utils.convert_to_type(yv, self.dtype)
+      end
 
       local scores = self.model:forward(xv)
       assert(torch.max(scores[1]) == torch.max(scores[1]))

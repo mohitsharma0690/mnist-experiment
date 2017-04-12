@@ -9,6 +9,12 @@ require 'optim'
 
 require 'model.MS_BootstrapCrossEntropy'
 
+--[[
+-- In this method we are using the top2 predicted labels from y_hat as our 
+-- pseudo-label. We have to use binary cross entropy (BCECriterion) since NLL
+-- assumes targets to be in one-hot form.
+]]
+
 local train_cls = {}
 
 function train_cls.setup(args)
@@ -37,15 +43,42 @@ function train_cls.setup(args)
 
   self.beta = G_global_opts['coef_beta_const']
 
+  -- Since we are using temperature (here T=2)
+  self.model.net:add(nn.MulConstant(1.0/2))
   -- Since we will be using NLL criterion
-  self.model.net:add(nn.LogSoftMax():cuda())
-  --self.model:updateType(self.dtype)
+  self.model.net:add(nn.SoftMax())
+  self.model:updateType(self.dtype)
   print(self.model.net)
   
-  self.crit1 = nn.ClassNLLCriterion():type(self.dtype)
-  self.crit2 = nn.ClassNLLCriterion():type(self.dtype)
+  self.crit1 = nn.BCECriterion():type(self.dtype)
+  -- self.crit2 = nn.ClassNLLCriterion():type(self.dtype)
+  --
+   
+  self.target_loss_coef = utils.get_kwarg(G_global_opts, 'target_loss_coef')
+  self.pred_loss_coef = utils.get_kwarg(G_global_opts, 'pred_loss_coef')
+  self.beta_loss_coef = utils.get_kwarg(G_global_opts, 'beta_loss_coef')
+  self.beta_reg_loss_coef = utils.get_kwarg(G_global_opts, 'beta_reg_loss_coef')
 
   self.params, self.grad_params = self.model:getParameters()
+end
+
+function train_cls.get_current_beta(stats)
+  -- Finish
+  local self = train_cls
+  local total_it = stats.total_epoch * stats.total_batch
+  local decay_it = G_global_opts.coef_beta_decay_steps
+  if decay_it == -1 then decay_it = total_it end
+  local done_it = (stats.curr_epoch - 1) * stats.total_batch + stats.curr_batch
+
+  if done_it < 2000 then return 0.999 end
+
+  local step = (self.coef_beta_start - self.coef_beta_end) / decay_it
+  local curr_beta = self.coef_beta_start - done_it * step
+  if curr_beta < self.coef_beta_end then curr_beta = self.coef_beta_end end
+
+  -- No beta regularization after 5 epochs!!
+  --if stats.curr_epoch > 5 then return 0 end
+  return curr_beta
 end
 
 function train_cls.read_data_co(data_co, data_loader)
@@ -72,30 +105,31 @@ function train_cls.f_opt_together(w)
   local success, x, y = self.read_data_co(self.data_co, self.data_loader)
   if not x then return 0, self.grad_params end
   
-  if G_global_opts.cifar == 1 then
-    x = utils.convert_to_type(x, 'torch.FloatTensor')
-    y = utils.convert_to_type(y, 'torch.FloatTensor')
-  else
-    x = utils.convert_to_type(x, self.dtype)
-    y = utils.convert_to_type(y, self.dtype)
-  end
+  x = utils.convert_to_type(x, self.dtype)
+  y = utils.convert_to_type(y, self.dtype)
+  local one_hot_y = utils.get_one_hot_tensor(y, G_global_opts.num_classify)
+  one_hot_y = utils.convert_to_type(one_hot_y, self.dtype)
 
   local scores = self.model:forward(x) 
-  local _, preds = torch.max(scores, 2)
-  preds = preds:view(-1)
-
+  -- Get the top 2 (largest) values in sorted order 
+  local _, topk_preds = torch.topk(scores, 2, true, true)
+  -- Get the pseudo labels 
+  local pseudo_label = torch.Tensor(scores:size()):zero()
+  for i=1, topk_preds:size(1) do 
+    pseudo_label[i][topk_preds[i][1]] = 1
+    --if y[i] ~= topk_preds[i][1] then
+    --  pseudo_label[i][topk_preds[i][1]] = 1
+    --else
+    --  pseudo_label[i][topk_preds[i][2]] = 1 
+    --end
+  end
+  pseudo_label = utils.convert_to_type(pseudo_label, self.dtype)
 
   -- This is sum(y*log(y_hat))
-  local loss_target = self.crit1:forward(scores, y)
-  local loss_pred = self.crit2:forward(scores, preds)
-  local loss = self.beta*loss_target + (1-self.beta)*loss_pred
+  local new_target = torch.add(self.beta*one_hot_y, (1-self.beta)*pseudo_label)
+  local loss = self.crit1:forward(scores, new_target)
 
-  local grad_target = self.crit1:backward(scores, y)
-  grad_target = grad_target:mul(self.beta)
-  local grad_pred = self.crit2:backward(scores, preds)
-  grad_pred = grad_pred:mul(1.0 - self.beta)
-
-  local grad_scores = torch.add(grad_target, grad_pred)
+  local grad_scores = self.crit1:backward(scores, new_target)
 
   -- Backrop the gradient
   self.model:backward(x, grad_scores)
@@ -103,8 +137,7 @@ function train_cls.f_opt_together(w)
   -- Update the confusion matrix
   self.train_conf:batchAdd(scores, y)
 
-  table.insert(self.checkpoint.crit1_loss_history, loss_target)
-  table.insert(self.checkpoint.crit2_loss_history, loss_pred)
+  table.insert(self.checkpoint.crit1_loss_history, loss)
   table.insert(self.checkpoint.train_loss_history, loss)
 
   if G_global_opts.grad_clip > 0 then
@@ -130,20 +163,14 @@ function train_cls.validate(val_data_co)
         val_data_co, self.data_loader) 
 
     if success and xv ~= nil then
-      if G_global_opts.cifar == 1 then
-        xv = utils.convert_to_type(xv, 'torch.FloatTensor')
-        yv = utils.convert_to_type(yv, 'torch.FloatTensor')
-      else
-        xv = utils.convert_to_type(xv, self.dtype)
-        yv = utils.convert_to_type(yv, self.dtype)
-      end
+      xv = utils.convert_to_type(xv, self.dtype)
+      yv = utils.convert_to_type(yv, self.dtype)
+      local one_hot_yv = utils.get_one_hot_tensor(yv, G_global_opts.num_classify)
+      one_hot_yv = utils.convert_to_type(one_hot_yv, self.dtype)
 
       local scores = self.model:forward(xv)
-      val_loss = val_loss + self.crit1:forward(scores, yv)
+      val_loss = val_loss + self.crit1:forward(scores, one_hot_yv)
 
-      -- Since its LogSoftMax we convert it into Softmax to avoid
-      -- NaN issues
-      scores = torch.exp(scores)
       self.val_conf:batchAdd(scores, yv)
       num_val = num_val + 1
     elseif success ~= true then
@@ -167,10 +194,10 @@ function train_cls.train(train_data_co, optim_config, stats)
   local loss
   _, loss = optim.adam(
       self.f_opt_together, self.params, optim_config)
-  if (stats.curr_batch > 0 and stats.curr_batch % G_global_opts.print_every == 0) then
 
-    local msg = 'Epoch: [%d/%d]\t Iteration:[%d/%d]\tTarget(y) loss: %.2f\t'
-    msg = msg..'Target loss: %.2f\t self pred loss: %.2f\t'
+  if (stats.curr_batch > 0 and stats.curr_batch % G_global_opts.print_every == 0) then 
+
+    local msg = 'Epoch: [%d/%d]\t Iteration:[%d/%d]\tTarget(y) loss: %.2f'
 
     local logs = self.checkpoint
     local args = {
@@ -178,12 +205,10 @@ function train_cls.train(train_data_co, optim_config, stats)
       stats.curr_epoch, stats.total_epoch,
       stats.curr_batch, stats.total_batch,
       logs.train_loss_history[#logs.train_loss_history],
-      logs.crit1_loss_history[#logs.crit1_loss_history],
-      logs.crit2_loss_history[#logs.crit2_loss_history],
     }
     print(string.format(unpack(args)))
-
-    print(logs.grads_history[#logs.grads_history])
+    print("Gradients: ")
+    print(logs.grads_history[#logs.grads_history]) 
   end
 
   return loss
