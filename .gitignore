@@ -53,3 +53,5 @@ data/
 .ipynb_checkpoints/
 *.t7
 cifar_data/
+code/cifar_results/**/*.json
+code/results/**/*.json
